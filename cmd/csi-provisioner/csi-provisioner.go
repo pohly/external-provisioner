@@ -35,6 +35,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+
+	"github.com/kubernetes-csi/drivers/pkg/csi-common"
 )
 
 var (
@@ -47,11 +49,10 @@ var (
 	volumeNameUUIDLength = flag.Int("volume-name-uuid-length", 16, "Length in characters for the generated uuid of a created volume")
 	showVersion          = flag.Bool("version", false, "Show version.")
 
-	provisionController *controller.ProvisionController
 	version             = "unknown"
 )
 
-func init() {
+func main() {
 	var config *rest.Config
 	var err error
 
@@ -63,6 +64,9 @@ func init() {
 		os.Exit(0)
 	}
 	glog.Infof("Version: %s", version)
+
+	closer := csicommon.InitTracer("csi-provisioner")
+	defer closer()
 
 	// get the KUBECONFIG from env if specified (useful for local/debug cluster)
 	kubeconfigEnv := os.Getenv("KUBECONFIG")
@@ -113,14 +117,12 @@ func init() {
 	// Create the provisioner: it implements the Provisioner interface expected by
 	// the controller
 	csiProvisioner := ctrl.NewCSIProvisioner(clientset, *csiEndpoint, *connectionTimeout, identity, *volumeNamePrefix, *volumeNameUUIDLength, grpcClient)
-	provisionController = controller.NewProvisionController(
+	provisionController := controller.NewProvisionController(
 		clientset,
 		*provisioner,
 		csiProvisioner,
 		serverVersion.GitVersion,
 	)
-}
 
-func main() {
 	provisionController.Run(wait.NeverStop)
 }
