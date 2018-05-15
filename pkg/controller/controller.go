@@ -46,6 +46,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/container-storage-interface/spec/lib/go/csi/v0"
+	"github.com/kubernetes-csi/drivers/pkg/csi-common"
 )
 
 const (
@@ -97,23 +98,12 @@ var (
 	provisionerIDKey = "storage.kubernetes.io/csiProvisionerIdentity"
 )
 
-// from external-attacher/pkg/connection
-//TODO consolidate ane librarize
-func logGRPC(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-	glog.V(5).Infof("GRPC call: %s", method)
-	glog.V(5).Infof("GRPC request: %+v", req)
-	err := invoker(ctx, method, req, reply, cc, opts...)
-	glog.V(5).Infof("GRPC response: %+v", reply)
-	glog.V(5).Infof("GRPC error: %v", err)
-	return err
-}
-
 func Connect(address string, timeout time.Duration) (*grpc.ClientConn, error) {
 	glog.V(2).Infof("Connecting to %s", address)
 	dialOptions := []grpc.DialOption{
 		grpc.WithInsecure(),
 		grpc.WithBackoffMaxDelay(time.Second),
-		grpc.WithUnaryInterceptor(logGRPC),
+		grpc.WithUnaryInterceptor(csicommon.LogGRPCClient),
 	}
 	if strings.HasPrefix(address, "/") {
 		dialOptions = append(dialOptions, grpc.WithDialer(func(addr string, timeout time.Duration) (net.Conn, error) {
