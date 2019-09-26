@@ -78,6 +78,20 @@
   version = "v1.3.1"
 
 [[projects]]
+  digest = "1:1d1cbf539d9ac35eb3148129f96be5537f1a1330cadcc7e3a83b4e72a59672a3"
+  name = "github.com/google/go-cmp"
+  packages = [
+    "cmp",
+    "cmp/internal/diff",
+    "cmp/internal/flags",
+    "cmp/internal/function",
+    "cmp/internal/value",
+  ]
+  pruneopts = "NUT"
+  revision = "2d0692c2e9617365a95b295612ac0d4415ba4627"
+  version = "v0.3.1"
+
+[[projects]]
   branch = "master"
   digest = "1:52c5834e2bebac9030c97cc0798ac11c3aa8a39f098aeb419f142533da6cd3cc"
   name = "github.com/google/gofuzz"
@@ -159,7 +173,7 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:426f97a3ddfd66853a948ffc39abe8042ff0820df9d20dddf8b32835cfb3b79f"
+  digest = "1:4617b4e869aac05eec108c56e9c872d7504ddb327c6b72701587bc1716fa6ee9"
   name = "github.com/kubernetes-csi/external-snapshotter"
   packages = [
     "pkg/apis/volumesnapshot/v1alpha1",
@@ -170,7 +184,7 @@
     "pkg/client/clientset/versioned/typed/volumesnapshot/v1alpha1/fake",
   ]
   pruneopts = "NUT"
-  revision = "54a21f108e31331ab64c3c6b9fb199ee3070bc75"
+  revision = "8dc67ee81919df98699a4034e6b36bbe266c5da1"
 
 [[projects]]
   digest = "1:5985ef4caf91ece5d54817c11ea25f182697534f8ae6521eadcd628c142ac4b6"
@@ -203,14 +217,6 @@
   pruneopts = "NUT"
   revision = "4b7aa43c6742a2c18fdef89dd197aaae7dac7ccd"
   version = "1.0.1"
-
-[[projects]]
-  digest = "1:93b1d84c5fa6d1ea52f4114c37714cddd84d5b78f151b62bb101128dd51399bf"
-  name = "github.com/pborman/uuid"
-  packages = ["."]
-  pruneopts = "NUT"
-  revision = "adf5a7427709b9deb95d29d3fa8a2bf9cfd388f1"
-  version = "v1.2"
 
 [[projects]]
   digest = "1:7c7cfeecd2b7147bcfec48a4bf622b4879e26aec145a9e373ce51d0c23b16f6b"
@@ -430,9 +436,10 @@
   version = "v2.2.2"
 
 [[projects]]
-  digest = "1:a937ed4322409fa22924f02124fd0727c19662f73cf15406646d19bdce972df2"
+  digest = "1:061024a203efbf02654d4aa55d69cd10d1f8985dada4cbafe5d6ce1b6914d22a"
   name = "k8s.io/api"
   packages = [
+    "admissionregistration/v1",
     "admissionregistration/v1beta1",
     "apps/v1",
     "apps/v1beta1",
@@ -452,6 +459,7 @@
     "coordination/v1",
     "coordination/v1beta1",
     "core/v1",
+    "discovery/v1alpha1",
     "events/v1beta1",
     "extensions/v1beta1",
     "networking/v1",
@@ -471,11 +479,11 @@
     "storage/v1beta1",
   ]
   pruneopts = "NUT"
-  revision = "40a48860b5abbba9aa891b02b32da429b08d96a0"
-  version = "kubernetes-1.14.0"
+  revision = "95b840bb6a1f5f0462af804c8589396d294d4914"
+  version = "kubernetes-1.16.0"
 
 [[projects]]
-  digest = "1:4bb2f8aa2f8dddb381c97029805248b663b1fdef245cd6d1748fdabfbe1641ff"
+  digest = "1:f2384c19ce786c161c3b69d2e6ba311bd481171308aea2c263d910c556a6df97"
   name = "k8s.io/apimachinery"
   packages = [
     "pkg/api/errors",
@@ -524,28 +532,26 @@
     "third_party/forked/golang/reflect",
   ]
   pruneopts = "NUT"
-  revision = "d7deff9243b165ee192f5551710ea4285dcfd615"
-  version = "kubernetes-1.14.0"
+  revision = "27d36303b6556f377b4f34e64705fa9024a12b0c"
+  version = "kubernetes-1.16.0"
 
 [[projects]]
-  digest = "1:f7ae0f734e1726267c0476f55c62ed1f8473943b177f108b90e1b9324d7f733b"
+  digest = "1:02dfdbf0c96143597afca68e7e13de4e82212f9b0a9a023c303cc5ef8aa595e0"
   name = "k8s.io/apiserver"
-  packages = [
-    "pkg/util/feature",
-    "pkg/util/feature/testing",
-  ]
+  packages = ["pkg/util/feature"]
   pruneopts = "NUT"
-  revision = "1ec86e4da56ce0573788fc12bb3a5530600c0e5d"
-  version = "kubernetes-1.14.1"
+  revision = "bfa5e2e684ad413c22fd0dab55b2592af1ead049"
+  version = "kubernetes-1.16.0"
 
 [[projects]]
-  digest = "1:85f25c196bc700354adc889a397f6550105865ad2588704094276f78f6e9d9ba"
+  digest = "1:1157322a6166ef003657df5bd52d61f639f4fdabc095b72817902c473d5a8e1a"
   name = "k8s.io/client-go"
   packages = [
     "discovery",
     "discovery/fake",
     "informers",
     "informers/admissionregistration",
+    "informers/admissionregistration/v1",
     "informers/admissionregistration/v1beta1",
     "informers/apps",
     "informers/apps/v1",
@@ -568,6 +574,8 @@
     "informers/coordination/v1beta1",
     "informers/core",
     "informers/core/v1",
+    "informers/discovery",
+    "informers/discovery/v1alpha1",
     "informers/events",
     "informers/events/v1beta1",
     "informers/extensions",
@@ -598,6 +606,8 @@
     "kubernetes",
     "kubernetes/fake",
     "kubernetes/scheme",
+    "kubernetes/typed/admissionregistration/v1",
+    "kubernetes/typed/admissionregistration/v1/fake",
     "kubernetes/typed/admissionregistration/v1beta1",
     "kubernetes/typed/admissionregistration/v1beta1/fake",
     "kubernetes/typed/apps/v1",
@@ -636,6 +646,8 @@
     "kubernetes/typed/coordination/v1beta1/fake",
     "kubernetes/typed/core/v1",
     "kubernetes/typed/core/v1/fake",
+    "kubernetes/typed/discovery/v1alpha1",
+    "kubernetes/typed/discovery/v1alpha1/fake",
     "kubernetes/typed/events/v1beta1",
     "kubernetes/typed/events/v1beta1/fake",
     "kubernetes/typed/extensions/v1beta1",
@@ -670,6 +682,7 @@
     "kubernetes/typed/storage/v1alpha1/fake",
     "kubernetes/typed/storage/v1beta1",
     "kubernetes/typed/storage/v1beta1/fake",
+    "listers/admissionregistration/v1",
     "listers/admissionregistration/v1beta1",
     "listers/apps/v1",
     "listers/apps/v1beta1",
@@ -685,6 +698,7 @@
     "listers/coordination/v1",
     "listers/coordination/v1beta1",
     "listers/core/v1",
+    "listers/discovery/v1alpha1",
     "listers/events/v1beta1",
     "listers/extensions/v1beta1",
     "listers/networking/v1",
@@ -733,8 +747,8 @@
     "util/workqueue",
   ]
   pruneopts = "NUT"
-  revision = "6ee68ca5fd8355d024d02f9db0b3b667e8357a0f"
-  version = "kubernetes-1.14.0"
+  revision = "1fbdaa4c8d908275eee958429b1cafc2591a2c5d"
+  version = "kubernetes-1.16.0"
 
 [[projects]]
   branch = "master"
@@ -745,23 +759,27 @@
   revision = "9c9d72d1bf90eb62005f5112f3eea019b272c44b"
 
 [[projects]]
-  digest = "1:dc54d24e166e75a89145883b6080306f5684db2e8ab7a068625f010dee604c6e"
+  digest = "1:d84ba7b211c2d381c415178dbd1702e32579571bfa8bf5796fe9345dd99e65f1"
   name = "k8s.io/component-base"
-  packages = ["cli/flag"]
+  packages = [
+    "cli/flag",
+    "featuregate",
+    "featuregate/testing",
+  ]
   pruneopts = "NUT"
-  revision = "4a91899592f42b2f5859587cc5a676a5b94d2ee3"
-  version = "kubernetes-1.14.0"
+  revision = "547f6c5d70902c6683e93ad96f84adc6b943aedf"
+  version = "kubernetes-1.16.0"
 
 [[projects]]
-  branch = "master"
-  digest = "1:026d302ec8c8f568cb6805891133e749e2f8b6b94068cd7375a3bbba232c9f38"
+  digest = "1:e1cf7f43ad9b9feea4fb1ae28dd6315e1d286039b3fc3ca6df58cafa2dfa0ec2"
   name = "k8s.io/csi-translation-lib"
   packages = [
     ".",
     "plugins",
   ]
   pruneopts = "NUT"
-  revision = "9ff632302e7ee3b0b6118cd21569ce8b51f7f0f2"
+  revision = "db86a8c7bb213e06fe7937e065916b81420aaa28"
+  version = "kubernetes-1.16.0"
 
 [[projects]]
   digest = "1:c263611800c3a97991dbcf9d3bc4de390f6224aaa8ca0a7226a9d734f65a416a"
@@ -780,15 +798,15 @@
   revision = "94e1e7b7574c44c4c0f2007de6fe617e259191f3"
 
 [[projects]]
-  digest = "1:e659d3cc6d0d04f28cd63ef3f55b18a5eb5185d6c317780be324b6bb541b3cb4"
+  digest = "1:f2d4f965ee4a9f2434c7c0b5e475ecb34ccee1509258069593047e9ce595c2ea"
   name = "k8s.io/kubernetes"
   packages = [
     "pkg/apis/core",
     "pkg/apis/core/helper",
   ]
   pruneopts = "NUT"
-  revision = "641856db18352033a0d96dbc99153fa3b27298e5"
-  version = "v1.14.0"
+  revision = "2bd9643cee5b3b3a5ecbd3af49d09018f0773c77"
+  version = "v1.16.0"
 
 [[projects]]
   branch = "master"
@@ -852,7 +870,6 @@
     "k8s.io/apimachinery/pkg/util/version",
     "k8s.io/apimachinery/pkg/util/wait",
     "k8s.io/apiserver/pkg/util/feature",
-    "k8s.io/apiserver/pkg/util/feature/testing",
     "k8s.io/client-go/kubernetes",
     "k8s.io/client-go/kubernetes/fake",
     "k8s.io/client-go/rest",
@@ -860,6 +877,7 @@
     "k8s.io/client-go/tools/clientcmd",
     "k8s.io/client-go/util/workqueue",
     "k8s.io/component-base/cli/flag",
+    "k8s.io/component-base/featuregate/testing",
     "k8s.io/csi-translation-lib",
     "k8s.io/klog",
     "k8s.io/kubernetes/pkg/apis/core/helper",
