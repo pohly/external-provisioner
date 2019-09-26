@@ -133,7 +133,8 @@
   version = "v1.1.6"
 
 [[projects]]
-  digest = "1:c74719aeb472ab2bd9ad14069f1a3ce97e54542de4143c4fc4c6c04dfd0dcf3c"
+  branch = "go-mod"
+  digest = "1:68680cce8e777f60cfc577e0058ec0d7e29f5f5cef7b3bc00cc7a455f901f189"
   name = "github.com/kubernetes-csi/csi-lib-utils"
   packages = [
     "connection",
@@ -142,8 +143,8 @@
     "protosanitizer",
   ]
   pruneopts = "NUT"
-  revision = "b8b7a89535d80e12f2c0f4c53cfb981add8aaca2"
-  version = "v0.6.1"
+  revision = "ae8dbaf74def30b45904858c15a3125fefd5e3bd"
+  source = "github.com/pohly/csi-lib-utils"
 
 [[projects]]
   digest = "1:189ada87769e6bd22de67cf8d5ac2f348070e7bcc4cdc5be3aaa5b19758e8fc2"

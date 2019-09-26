@@ -61,7 +61,8 @@
 
 [[constraint]]
   name = "github.com/kubernetes-csi/csi-lib-utils"
-  version = ">=0.6.1"
+  source = "github.com/pohly/csi-lib-utils"
+  branch = "go-mod"
 
 [prune]
   non-go = true
