@@ -226,6 +226,7 @@ type csiProvisioner struct {
 	vaLister                              storagelistersv1.VolumeAttachmentLister
 	extraCreateMetadata                   bool
 	eventRecorder                         record.EventRecorder
+	enableNodeCheck                       bool
 }
 
 var _ controller.Provisioner = &csiProvisioner{}
@@ -295,6 +296,7 @@ func NewCSIProvisioner(client kubernetes.Interface,
 	vaLister storagelistersv1.VolumeAttachmentLister,
 	extraCreateMetadata bool,
 	defaultFSType string,
+	enableNodeCheck bool,
 ) controller.Provisioner {
 	broadcaster := record.NewBroadcaster()
 	broadcaster.StartLogging(klog.Infof)
@@ -325,6 +327,7 @@ func NewCSIProvisioner(client kubernetes.Interface,
 		vaLister:                              vaLister,
 		extraCreateMetadata:                   extraCreateMetadata,
 		eventRecorder:                         eventRecorder,
+		enableNodeCheck:                       enableNodeCheck,
 	}
 	return provisioner
 }
@@ -444,6 +447,12 @@ func (p *csiProvisioner) Provision(ctx context.Context, options controller.Provi
 				p.driverName),
 		}
 
+	}
+
+	if p.enableNodeCheck && options.SelectedNode.Name != os.Getenv("NODE_NAME") {
+		return nil, controller.ProvisioningNoChange, &controller.IgnoredError{
+			Reason: fmt.Sprintf("Selected node (%s) is not current node (%s)", options.SelectedNode.Name, os.Getenv("NODE_NAME")),
+		}
 	}
 
 	migratedVolume := false
