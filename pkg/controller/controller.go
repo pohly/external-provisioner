@@ -30,6 +30,7 @@ import (
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/kubernetes-csi/csi-lib-utils/connection"
+	"github.com/kubernetes-csi/csi-lib-utils/leaderelection"
 	"github.com/kubernetes-csi/external-provisioner/pkg/features"
 	snapapi "github.com/kubernetes-csi/external-snapshotter/pkg/apis/volumesnapshot/v1alpha1"
 	snapclientset "github.com/kubernetes-csi/external-snapshotter/pkg/client/clientset/versioned"
@@ -196,6 +197,7 @@ type csiProvisioner struct {
 	strictTopology                        bool
 	translator                            ProvisionerCSITranslator
 	enableNodeCheck                       bool
+	leaderTracker                         *leaderelection.Tracker
 }
 
 var _ controller.Provisioner = &csiProvisioner{}
@@ -256,7 +258,8 @@ func NewCSIProvisioner(client kubernetes.Interface,
 	supportsMigrationFromInTreePluginName string,
 	strictTopology bool,
 	translator ProvisionerCSITranslator,
-	enableNodeCheck bool) controller.Provisioner {
+	enableNodeCheck bool,
+	leaderTracker *leaderelection.Tracker) controller.Provisioner {
 
 	csiClient := csi.NewControllerClient(grpcClient)
 	provisioner := &csiProvisioner{
@@ -275,6 +278,7 @@ func NewCSIProvisioner(client kubernetes.Interface,
 		strictTopology:                        strictTopology,
 		translator:                            translator,
 		enableNodeCheck:                       enableNodeCheck,
+		leaderTracker:                         leaderTracker,
 	}
 	return provisioner
 }
@@ -398,9 +402,25 @@ func (p *csiProvisioner) ProvisionExt(options controller.ProvisionOptions) (*v1.
 		}
 	}
 
-	if p.enableNodeCheck && options.SelectedNode.Name != os.Getenv("NODE_NAME") {
-		return nil, controller.ProvisioningNoChange, &controller.IgnoredError{
-			Reason: fmt.Sprintf("Selected node (%s) is not current node (%s)", options.SelectedNode.Name, os.Getenv("NODE_NAME")),
+	if p.enableNodeCheck {
+		switch options.SelectedNode.Name {
+		case "":
+			if p.leaderTracker == nil {
+				return nil, controller.ProvisioningNoChange, &controller.IgnoredError{
+					Reason: "no node selected for volume, only WaitForFirstConsumer is supported",
+				}
+			}
+			if !p.leaderTracker.Leading() {
+				return nil, controller.ProvisioningNoChange, &controller.IgnoredError{
+					Reason: "not the leader, some other instance will provision this volume",
+				}
+			}
+		case os.Getenv("NODE_NAME"):
+			// Volume is for this node, proceed.
+		default:
+			return nil, controller.ProvisioningNoChange, &controller.IgnoredError{
+				Reason: fmt.Sprintf("Selected node (%s) is not current node (%s)", options.SelectedNode.Name, os.Getenv("NODE_NAME")),
+			}
 		}
 	}
 
