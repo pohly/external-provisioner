@@ -29,6 +29,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/kubernetes-csi/csi-lib-utils/leaderelection"
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -227,6 +229,7 @@ type csiProvisioner struct {
 	extraCreateMetadata                   bool
 	eventRecorder                         record.EventRecorder
 	enableNodeCheck                       bool
+	leaderTracker                         *leaderelection.Tracker
 }
 
 var _ controller.Provisioner = &csiProvisioner{}
@@ -297,6 +300,7 @@ func NewCSIProvisioner(client kubernetes.Interface,
 	extraCreateMetadata bool,
 	defaultFSType string,
 	enableNodeCheck bool,
+	leaderTracker *leaderelection.Tracker,
 ) controller.Provisioner {
 	broadcaster := record.NewBroadcaster()
 	broadcaster.StartLogging(klog.Infof)
@@ -328,6 +332,7 @@ func NewCSIProvisioner(client kubernetes.Interface,
 		extraCreateMetadata:                   extraCreateMetadata,
 		eventRecorder:                         eventRecorder,
 		enableNodeCheck:                       enableNodeCheck,
+		leaderTracker:                         leaderTracker,
 	}
 	return provisioner
 }
@@ -449,9 +454,25 @@ func (p *csiProvisioner) Provision(ctx context.Context, options controller.Provi
 
 	}
 
-	if p.enableNodeCheck && options.SelectedNode.Name != os.Getenv("NODE_NAME") {
-		return nil, controller.ProvisioningNoChange, &controller.IgnoredError{
-			Reason: fmt.Sprintf("Selected node (%s) is not current node (%s)", options.SelectedNode.Name, os.Getenv("NODE_NAME")),
+	if p.enableNodeCheck {
+		switch options.SelectedNode.Name {
+		case "":
+			if p.leaderTracker == nil {
+				return nil, controller.ProvisioningNoChange, &controller.IgnoredError{
+					Reason: "no node selected for volume, only WaitForFirstConsumer is supported",
+				}
+			}
+			if !p.leaderTracker.Leading() {
+				return nil, controller.ProvisioningNoChange, &controller.IgnoredError{
+					Reason: "not the leader, some other instance will provision this volume",
+				}
+			}
+		case os.Getenv("NODE_NAME"):
+			// Volume is for this node, proceed.
+		default:
+			return nil, controller.ProvisioningNoChange, &controller.IgnoredError{
+				Reason: fmt.Sprintf("Selected node (%s) is not current node (%s)", options.SelectedNode.Name, os.Getenv("NODE_NAME")),
+			}
 		}
 	}
 

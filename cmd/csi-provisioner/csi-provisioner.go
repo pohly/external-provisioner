@@ -94,11 +94,6 @@ var (
 	version             = "unknown"
 )
 
-type leaderElection interface {
-	Run() error
-	WithNamespace(namespace string)
-}
-
 func main() {
 	var config *rest.Config
 	var err error
@@ -245,6 +240,11 @@ func main() {
 		provisionerOptions = append(provisionerOptions, controller.AdditionalProvisionerNames([]string{supportsMigrationFromInTreePluginName}))
 	}
 
+	var tracker *leaderelection.Tracker
+	if *enableLeaderElection {
+		tracker = &leaderelection.Tracker{}
+	}
+
 	// Create the provisioner: it implements the Provisioner interface expected by
 	// the controller
 	csiProvisioner := ctrl.NewCSIProvisioner(
@@ -269,6 +269,7 @@ func main() {
 		*extraCreateMetadata,
 		*defaultFSType,
 		*enableNodeCheck,
+		tracker,
 	)
 
 	provisionController = controller.NewProvisionController(
@@ -362,6 +363,22 @@ func main() {
 	if !*enableLeaderElection {
 		run(context.TODO())
 	} else {
+		var stop func()
+		if *enableNodeCheck {
+			// When node checking and leadership election
+			// are both enabled, then we run leadership
+			// election and provisioning in parallel. The
+			// node which is currently the leader is
+			// responsible for provisioning volumes that
+			// haven't been assigned to a node yet.
+			defer run(context.TODO())
+
+			run = func(context.Context) {
+				tracker.Run()
+			}
+			stop = tracker.Stop
+		}
+
 		// this lock name pattern is also copied from sigs.k8s.io/sig-storage-lib-external-provisioner/v6/controller
 		// to preserve backwards compatibility
 		lockName := strings.Replace(provisionerName, "/", "-", -1)
@@ -377,6 +394,7 @@ func main() {
 		if *leaderElectionNamespace != "" {
 			le.WithNamespace(*leaderElectionNamespace)
 		}
+		le.WithStopLeading(stop)
 
 		if err := le.Run(); err != nil {
 			klog.Fatalf("failed to initialize leader election: %v", err)

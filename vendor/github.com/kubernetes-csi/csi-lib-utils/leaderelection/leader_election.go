@@ -43,7 +43,8 @@ const (
 
 // leaderElection is a convenience wrapper around client-go's leader election library.
 type leaderElection struct {
-	runFunc func(ctx context.Context)
+	runFunc  func(ctx context.Context)
+	stopFunc func()
 
 	// the lockName identifies the leader election config and should be shared across all members
 	lockName string
@@ -127,6 +128,10 @@ func (l *leaderElection) WithRetryPeriod(retryPeriod time.Duration) {
 	l.retryPeriod = retryPeriod
 }
 
+func (l *leaderElection) WithStopLeading(stopFunc func()) {
+	l.stopFunc = stopFunc
+}
+
 func (l *leaderElection) Run() error {
 	if l.identity == "" {
 		id, err := defaultLeaderElectionIdentity()
@@ -166,7 +171,11 @@ func (l *leaderElection) Run() error {
 				l.runFunc(ctx)
 			},
 			OnStoppedLeading: func() {
-				klog.Fatal("stopped leading")
+				if l.stopFunc == nil {
+					// Kills the process.
+					klog.Fatal("stopped leading")
+				}
+				l.stopFunc()
 			},
 			OnNewLeader: func(identity string) {
 				klog.V(3).Infof("new leader detected, current leader: %s", identity)
