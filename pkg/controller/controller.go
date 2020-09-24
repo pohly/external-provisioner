@@ -131,6 +131,7 @@ const (
 
 	annMigratedTo         = "pv.kubernetes.io/migrated-to"
 	annStorageProvisioner = "volume.beta.kubernetes.io/storage-provisioner"
+	annSelectedNode       = "volume.kubernetes.io/selected-node"
 
 	snapshotNotBound = "snapshot %s not bound"
 
@@ -449,9 +450,38 @@ func (p *csiProvisioner) Provision(ctx context.Context, options controller.Provi
 
 	}
 
-	if p.enableNodeCheck && options.SelectedNode.Name != os.Getenv("NODE_NAME") {
-		return nil, controller.ProvisioningNoChange, &controller.IgnoredError{
-			Reason: fmt.Sprintf("Selected node (%s) is not current node (%s)", options.SelectedNode.Name, os.Getenv("NODE_NAME")),
+	if p.enableNodeCheck {
+		node := os.Getenv("NODE_NAME")
+		switch {
+		case options.SelectedNode == nil || options.SelectedNode.Name == "":
+			// Volume with immediate binding. Try to select the current node. If later volume provisioning
+			// fails on this node, the annotation will be unset and node selection will happen again.
+			// TODO: exponential backoff with jitter - reset when?
+			pvc := options.PVC.DeepCopy()
+			pvc.Annotations[annSelectedNode] = node
+			_, err := p.client.CoreV1().PersistentVolumeClaims(pvc.Namespace).Update(ctx, pvc, metav1.UpdateOptions{})
+			if err != nil {
+				// We may have lost the race or there was a temporary error. Either way,
+				// keep trying until some node is selected.
+				// TODO: avoid error logging and event when some other process was faster
+				// by getting the PVC on a conflict and checking.
+				return nil, controller.ProvisioningNoChange,
+					fmt.Errorf("selecting node (%s) for PVC failed: %v", node, err)
+			}
+			// Bail out for now instead of patching options.PVC and options.SelectedNode.
+			// Once sig-storage-lib-external-provisioner sees the modification, it'll call
+			// us again.
+			return nil, controller.ProvisioningNoChange, &controller.IgnoredError{
+				Reason: fmt.Sprintf("selected node (%s) for PVC", node),
+			}
+		case options.SelectedNode.Name == node:
+			// Our node is selected. Provision below.
+		default:
+			// Returning an IgnoredError here will cause sig-storage-lib-external-provisioner to
+			// stop provisioning attempts until something changes.
+			return nil, controller.ProvisioningNoChange, &controller.IgnoredError{
+				Reason: fmt.Sprintf("Selected node (%s) is not current node (%s)", options.SelectedNode.Name, os.Getenv("NODE_NAME")),
+			}
 		}
 	}
 
@@ -1019,6 +1049,8 @@ func (p *csiProvisioner) Delete(ctx context.Context, volume *v1.PersistentVolume
 	if volume.Spec.CSI == nil {
 		return fmt.Errorf("invalid CSI PV")
 	}
+
+	// TODO: avoid DeleteVolume call for volumes that were not created on the node.
 
 	volumeId := p.volumeHandleToId(volume.Spec.CSI.VolumeHandle)
 

@@ -115,6 +115,11 @@ func main() {
 		klog.Fatal(err)
 	}
 
+	node := os.Getenv("NODE_NAME")
+	if *enableNodeCheck && node == "" {
+		klog.Fatal("The NODE_NAME environment variable must be set when using --enable-node-check.")
+	}
+
 	if *showVersion {
 		fmt.Println(os.Args[0], version)
 		os.Exit(0)
@@ -192,6 +197,9 @@ func main() {
 	// Generate a unique ID for this provisioner
 	timeStamp := time.Now().UnixNano() / int64(time.Millisecond)
 	identity := strconv.FormatInt(timeStamp, 10) + "-" + strconv.Itoa(rand.Intn(10000)) + "-" + provisionerName
+	if *enableNodeCheck {
+		identity = identity + "-" + node
+	}
 
 	factory := informers.NewSharedInformerFactory(clientset, ctrl.ResyncPeriodOfCsiNodeInformer)
 	var factoryForNamespace informers.SharedInformerFactory // usually nil, only used for CSIStorageCapacity
