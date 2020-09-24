@@ -84,6 +84,16 @@ See the [storage capacity section](#capacity-support) below for details.
 
 * `--capacity-for-immediate-binding <bool>`: Enables producing capacity information for storage classes with immediate binding. Not needed for the Kubernetes scheduler, maybe useful for other consumers or for debugging. Defaults to `false`.
 
+##### Distributed provisioning
+
+* `--node-deployment`: Enables deploying the external-provisioner together with a CSI driver on nodes to manage node-local volumes. Off by default.
+
+* `--node-deployment-immediate-binding`: Determines whether immediate binding is supported when deployed on each node. Enabled by default, use `--node-deployment-immediate-binding=false` if not desired.
+
+* `--node-deployment-base-delay`: Determines how long the external-provisioner sleeps initially before trying to own a PVC with immediate binding. Defaults to 20 seconds.
+
+* `--node-deployment-max-delay`: Determines how long the external-provisioner sleeps at most before trying to own a PVC with immediate binding. Defaults to 60 seconds.
+
 #### Other recognized arguments
 * `--feature-gates <gates>`: A set of comma separated `<feature-name>=<true|false>` pairs that describe feature gates for alpha/experimental features. See [list of features](#feature-status) or `--help` output for list of recognized features. Example: `--feature-gates Topology=true` to enable Topology feature that's disabled by default.
 
@@ -232,6 +242,93 @@ Details of error handling of individual CSI calls:
 * `ControllerDeleteVolume`: This is similar to `ControllerCreateVolume`, The external-provisioner will retry calling `ControllerDeleteVolume` with exponential backoff after timeout until it gets either successful response or a final error that the volume cannot be deleted.
 * `Probe`: The external-provisioner retries calling Probe until the driver reports it's ready. It retries also when it receives timeout from `Probe` call. The external-provisioner has no limit of retries. It is expected that ReadinessProbe on the driver container will catch case when the driver takes too long time to get ready.
 * `GetPluginInfo`, `GetPluginCapabilitiesRequest`, `ControllerGetCapabilities`: The external-provisioner expects that these calls are quick and does not retry them on any error, including timeout. Instead, it assumes that the driver is faulty and exits. Note that Kubernetes will likely start a new provisioner container and it will start with `Probe` call.
+
+### Deployment on each node
+
+Normally, external-provisioner is deployed once in a cluster and
+communicates with a control instance of the CSI driver which then
+provisions volumes via some kind of storage backend API. CSI drivers
+which manage local storage on a node don't have such an API that a
+central controller could use.
+
+To support this case, external-provisioner can be deployed alongside
+each CSI driver on different nodes. The CSI driver deployment must:
+- support topology, usually with one topology key
+  ("csi.example.org/node") and the Kubernetes node name as value
+- use a service account that has the same RBAC rules as for a normal
+  deployment
+- invoke external-provisioner with `--node-deployment`
+- tweak `--node-deployment-base-delay` and `--node-deployment-max-delay`
+  to match the expected cluster size and desired response times
+  (only relevant when there are storage classes with immediate binding,
+  see below for details)
+- set the `NODE_NAME` environment variable to the name of the Kubernetes node
+- implement `GetCapacity`
+
+Usage of `--strict-topology` and `--immediate-topology=false` is
+recommended because it makes the `CreateVolume` invocations simpler.
+
+Volume provisioning with late binding works as before, except that
+each external-provisioner instance checks the "selected node"
+annotation and only creates volumes if that node is the one it runs
+on. It also only deletes volumes on its own node.
+
+Immediate binding is also supported, but not recommended. It is
+implemented by letting the external-provisioner instances assign a PVC
+to one of them: when they see a new PVC with immediate binding, they
+all attempt to set the "selected node" annotation with their own node
+name as value. Only one update request can succeed, all others get a
+"conflict" error and then know that some other instance was faster. To
+avoid the thundering herd problem, each instance waits for a random
+period before issuing an update request.
+
+When `CreateVolume` call fails with `ResourcesExhausted`, the normal
+recovery mechanism is used, i.e. the external-provisioner instance
+removes the "selected node" annotation and the process repeats. But
+this triggers events for the PVC and delays volume creation, in
+particular when storage is exhausted on most nodes. Therefore
+external-provisioner checks with `GetCapacity` *before* attempting to
+own a PVC whether the currently available capacity is sufficient for
+the volume. When it isn't, the PVC is ignored and some other instance
+can own it.
+
+The `--node-deployment-base-delay` parameter determines the initial
+wait period. It also sets the jitter, so in practice the delay will be
+in the range from zero to the base delay. After a collision, the delay
+increases exponentially. If the value is high, volumes with immediate
+binding get created more slowly. If it is low, then the risk of
+conflicts while setting the "selected node" annotation increases and
+the apiserver load will be higher.
+
+There is an exponential backoff per PVC which is used for unexpected
+problems. Normally, an owner for a PVC is chosen during the first
+attempt, so most PVCs will use the base delays. A maximum can be set
+with `--node-deployment-max-delay` anyway, to avoid very long delays
+when something went wrong repeatedly.
+
+During scale testing with 100 external-provisioner instances, a base
+delay of 20 seconds worked well. When provisioning 3000 volumes, there
+were only 500 conflicts which the apiserver handled without getting
+overwhelmed. The average provisioning rate of around 40 volumes/second
+was the same as with a delay of 10 seconds. The worst-case latency per
+volume was probably higher, but that wasn't measured.
+
+Note that the QPS settings of kube-controller-manager and
+external-provisioner have to be increased at the moment (Kubernetes
+1.19) to provision volumes faster than around 4 volumes/second.
+
+Beware that if *no* node has sufficient storage available, then also
+no `CreateVolume` call is attempted and thus no events are generated
+for the PVC, i.e. some other means of tracking remaining storage
+capacity must be used to detect when the cluster runs out of storage.
+
+Because PVCs with immediate binding get distributed randomly among
+nodes, they get spread evenly. If that is not desirable, then it is
+possible to disable support for immediate binding in distributed
+provisioning with `--node-deployment-immediate-binding=false` and
+instead implement a custom policy in a separate controller which sets
+the "selected node" annotation to trigger local provisioning on the
+desired node.
 
 ## Community, discussion, contribution, and support
 
