@@ -281,7 +281,7 @@ each CSI driver on different nodes. The CSI driver deployment must:
 - set the `NODE_NAME` environment variable to the name of the Kubernetes node
 - implement `GetCapacity`
 
-Usage of `--strict-topology` and `--no-immediate-topology` is
+Usage of `--strict-topology` and `--immediate-topology=false` is
 recommended because it makes the `CreateVolume` invocations simpler.
 
 Volume provisioning with late binding works as before, except that
