@@ -1346,14 +1346,11 @@ func (nc *internalNodeDeployment) becomeOwner(ctx context.Context, client kubern
 		if err != nil {
 			return false, nil, fmt.Errorf("PVC not found: %v", err)
 		}
-		if current.Annotations == nil {
-			current.Annotations = map[string]string{}
-		}
-		if current.Annotations[annSelectedNode] != "" && current.Annotations[annSelectedNode] != nc.NodeName {
-			return true, nil, nil
-		}
 		if claim.UID != current.UID {
 			return false, nil, errors.New("PVC was replaced")
+		}
+		if current.Annotations != nil && current.Annotations[annSelectedNode] != "" && current.Annotations[annSelectedNode] != nc.NodeName {
+			return true, nil, nil
 		}
 		return false, current, nil
 	}
@@ -1387,7 +1384,12 @@ loop:
 	}
 
 	// Update PVC with our node as selected node.
+	current = current.DeepCopy()
+	if current.Annotations == nil {
+		current.Annotations = map[string]string{}
+	}
 	current.Annotations[annSelectedNode] = nc.NodeName
+	klog.V(5).Infof("trying to become owner of PVC %s/%s with resource version %s now", current.Namespace, current.Name, current.ResourceVersion)
 	current, err = client.CoreV1().PersistentVolumeClaims(current.Namespace).Update(ctx, current, metav1.UpdateOptions{})
 	if err != nil {
 		// Slow down, regardless whether it is because of a
@@ -1404,7 +1406,7 @@ loop:
 
 	// Successfully became owner. Future delays will be smaller.
 	nc.rateLimiter.Success()
-	klog.V(5).Infof("became owner of PVC %s/%s", claim.Namespace, claim.Name)
+	klog.V(5).Infof("became owner of PVC %s/%s with updated resource version %s", current.Namespace, current.Name, current.ResourceVersion)
 	return current, nil
 }
 
