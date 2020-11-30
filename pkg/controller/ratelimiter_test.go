@@ -63,45 +63,11 @@ func TestRateLimiter(t *testing.T) {
 
 	rd.Success()
 	exp = rd.Exp()
-	if exp != 2 {
-		t.Errorf("expected exp == 2, got %d", exp)
-	}
-	backoff = rd.When()
-	if backoff < 2*time.Second ||
-		backoff > 4*time.Second {
-		t.Errorf("expected value >= 2s, <= 4s, got %s", backoff)
-	}
-
-	rd.Success()
-	exp = rd.Exp()
-	if exp != 1 {
-		t.Errorf("expected exp == 1, got %d", exp)
-	}
-	backoff = rd.When()
-	if backoff < 1*time.Second ||
-		backoff > 2*time.Second {
-		t.Errorf("expected value >= 1s, <= 2s, got %s", backoff)
-	}
-
-	rd.Success()
-	exp = rd.Exp()
 	if exp != 0 {
 		t.Errorf("expected exp == 0, got %d", exp)
 	}
 	backoff = rd.When()
-	if backoff < 0*time.Second ||
-		backoff > 1*time.Second {
-		t.Errorf("expected value >= 0s, <= 1s, got %s", backoff)
-	}
-
-	rd.Success()
-	exp = rd.Exp()
-	if exp != 0 {
-		t.Errorf("expected exp == 0, got %d", exp)
-	}
-	backoff = rd.When()
-	if backoff < 0*time.Second ||
-		backoff > 1*time.Second {
-		t.Errorf("expected value >= 0s, <= 1s, got %s", backoff)
+	if backoff > time.Second {
+		t.Errorf("expected value <= 1s, got %s", backoff)
 	}
 }

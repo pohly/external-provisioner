@@ -359,7 +359,7 @@ func NewCSIProvisioner(client kubernetes.Interface,
 		baseDelay := nodeDeployment.BaseDelay
 		provisioner.nodeDeployment = &internalNodeDeployment{
 			NodeDeployment: *nodeDeployment,
-			rateLimiter:    newItemExponentialFailureRateLimiterWithJitter(baseDelay, 256*baseDelay),
+			rateLimiter:    newItemExponentialFailureRateLimiterWithJitter(baseDelay, 128*baseDelay),
 		}
 	}
 

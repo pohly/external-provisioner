@@ -63,10 +63,8 @@ func (r *rateLimiterWithJitter) Success() {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
-	// Speed up gradually by reducing the delay exponent.
-	if r.exp > 0 {
-		r.exp--
-	}
+	// Go as fast as we can because it looks like the period of waiting is over.
+	r.exp = 0
 }
 
 func (r *rateLimiterWithJitter) Exp() int {
