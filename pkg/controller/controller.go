@@ -45,9 +45,7 @@ import (
 	corelisters "k8s.io/client-go/listers/core/v1"
 	storagelistersv1 "k8s.io/client-go/listers/storage/v1"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/sig-storage-lib-external-provisioner/v6/controller"
 	"sigs.k8s.io/sig-storage-lib-external-provisioner/v6/util"
@@ -212,11 +210,12 @@ type NodeDeployment struct {
 	NodeName      string
 	ClaimInformer coreinformers.PersistentVolumeClaimInformer
 	NodeInfo      csi.NodeGetInfoResponse
+	BaseDelay     time.Duration
 }
 
 type internalNodeDeployment struct {
 	NodeDeployment
-	rateLimiter workqueue.RateLimiter
+	rateLimiter *rateLimiterWithJitter
 }
 
 type csiProvisioner struct {
@@ -357,45 +356,11 @@ func NewCSIProvisioner(client kubernetes.Interface,
 		eventRecorder:                         eventRecorder,
 	}
 	if nodeDeployment != nil {
-		// The base delay configures the rate limiting which
-		// prevents concurrent external-provisioner instances
-		// to start working on a new PVC all at the
-		// sametime. This delay also influences the jitter, so the
-		// initial delay will be somewhere between 0 and
-		// baseDelay.
-		//
-		// It must be large enough that one instance has the chance to
-		// become owner of a PVC and get that change propagated to the
-		// other instances before those wake up to try that
-		// themselves.
-		//
-		// With a value of 10 seconds, when creating 5000
-		// volumes on a cluster with 50 instances only ~300
-		// update conflicts occurred. With a value of 1 second,
-		// over 6000 conflicts occurred. The rate of volume
-		// provisioning was the same in both cases.
-		//
-		// The latency per volume was probably higher with the
-		// higher delay, but that was not measured.
-		//
-		// It might make sense to make this value configurable so
-		// that CSI driver deployments can tweak it depending
-		// on their needs.
-		baseDelay := 10 * time.Second
-
+		baseDelay := nodeDeployment.BaseDelay
 		provisioner.nodeDeployment = &internalNodeDeployment{
 			NodeDeployment: *nodeDeployment,
 			rateLimiter:    newItemExponentialFailureRateLimiterWithJitter(baseDelay, 256*baseDelay),
 		}
-		// Remove deleted PVCs from rate limiter.
-		claimHandler := cache.ResourceEventHandlerFuncs{
-			DeleteFunc: func(obj interface{}) {
-				if claim, ok := obj.(*v1.PersistentVolumeClaim); ok {
-					provisioner.nodeDeployment.rateLimiter.Forget(claim.UID)
-				}
-			},
-		}
-		provisioner.nodeDeployment.ClaimInformer.Informer().AddEventHandler(claimHandler)
 	}
 
 	return provisioner
@@ -1369,9 +1334,9 @@ func (p *csiProvisioner) checkCapacity(ctx context.Context, claim *v1.Persistent
 // Returns an error if something unexpectedly failed, otherwise an updated PVC with
 // the current node selected or nil if not the owner.
 func (nc *internalNodeDeployment) becomeOwner(ctx context.Context, client kubernetes.Interface, claim *v1.PersistentVolumeClaim) (*v1.PersistentVolumeClaim, error) {
-	attempts := nc.rateLimiter.NumRequeues(claim.UID)
-	delay := nc.rateLimiter.When(claim.UID)
-	klog.V(5).Infof("will try to become owner of PVC %s/%s in %s, attempt #%d", claim.Namespace, claim.Name, delay, attempts)
+	exp := nc.rateLimiter.Exp()
+	delay := nc.rateLimiter.When()
+	klog.V(5).Infof("will try to become owner of PVC %s/%s in %s (exponent = %d)", claim.Namespace, claim.Name, delay, exp)
 	sleep, cancel := context.WithTimeout(ctx, delay)
 	defer cancel()
 	ticker := time.NewTicker(10 * time.Millisecond)
@@ -1417,7 +1382,6 @@ loop:
 	if stop {
 		// Some other instance was faster and we don't need to provision for
 		// this PVC.
-		nc.rateLimiter.Forget(claim.UID)
 		klog.V(5).Infof("did not become owner of PVC %s/%s", claim.Namespace, claim.Name)
 		return nil, nil
 	}
@@ -1426,17 +1390,20 @@ loop:
 	current.Annotations[annSelectedNode] = nc.NodeName
 	current, err = client.CoreV1().PersistentVolumeClaims(current.Namespace).Update(ctx, current, metav1.UpdateOptions{})
 	if err != nil {
+		// Slow down, regardless whether it is because of a
+		// lost race or general issues with system load.
+		nc.rateLimiter.Failure()
 		if apierrors.IsConflict(err) {
 			// Lost the race or some other concurrent modification. Repeat the attempt.
-			klog.V(5).Infof("conflict during PVC update, will try again")
+			klog.V(3).Infof("conflict during PVC update, will try again")
 			return nc.becomeOwner(ctx, client, claim)
 		}
 		// Some unexpected error. Report it.
 		return nil, fmt.Errorf("selecting node %q for PVC failed: %v", nc.NodeName, err)
 	}
 
-	// Successfully became owner.
-	nc.rateLimiter.Forget(claim.UID)
+	// Successfully became owner. Future delays will be smaller.
+	nc.rateLimiter.Success()
 	klog.V(5).Infof("became owner of PVC %s/%s", claim.Namespace, claim.Name)
 	return current, nil
 }

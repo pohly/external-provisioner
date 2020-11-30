@@ -1,5 +1,5 @@
 /*
-Copyright 2017 The Kubernetes Authors.
+Copyright 2020 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,39 +17,69 @@ limitations under the License.
 package controller
 
 import (
+	"math"
 	"math/rand"
 	"sync"
 	"time"
-
-	"k8s.io/client-go/util/workqueue"
-	"k8s.io/klog/v2"
 )
 
 type rateLimiterWithJitter struct {
-	workqueue.RateLimiter
+	exp       int
 	baseDelay time.Duration
+	maxDelay  time.Duration
 	rd        *rand.Rand
 	mutex     sync.Mutex
 }
 
-func (r *rateLimiterWithJitter) When(item interface{}) time.Duration {
+func (r *rateLimiterWithJitter) When() time.Duration {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
-	delay := r.RateLimiter.When(item)
+	// The delay is capped such that 'calculated' value never overflows.
+	delay := float64(r.baseDelay.Nanoseconds()) * math.Pow(2, float64(r.exp))
+	if delay > math.MaxInt64 ||
+		int64(delay) > r.maxDelay.Nanoseconds() {
+		return r.maxDelay
+	}
+
 	percentage := r.rd.Float64()
-	jitter := int64(float64(r.baseDelay.Nanoseconds()) * percentage)
-	if jitter > delay.Nanoseconds() {
-		klog.Infof("clipping at 0 because %v > %v, percentage %v", jitter, delay, percentage)
+	jitter := float64(r.baseDelay.Nanoseconds()) * percentage
+	backoff := delay - jitter
+	if backoff <= 0 {
 		return 0
 	}
-	return time.Duration(delay.Nanoseconds() - jitter)
+	return time.Duration(int64(backoff))
 }
 
-func newItemExponentialFailureRateLimiterWithJitter(baseDelay time.Duration, maxDelay time.Duration) workqueue.RateLimiter {
+func (r *rateLimiterWithJitter) Failure() {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	// Busy, slow down.
+	r.exp++
+}
+
+func (r *rateLimiterWithJitter) Success() {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	// Speed up gradually by reducing the delay exponent.
+	if r.exp > 0 {
+		r.exp--
+	}
+}
+
+func (r *rateLimiterWithJitter) Exp() int {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	return r.exp
+}
+
+func newItemExponentialFailureRateLimiterWithJitter(baseDelay time.Duration, maxDelay time.Duration) *rateLimiterWithJitter {
 	return &rateLimiterWithJitter{
-		RateLimiter: workqueue.NewItemExponentialFailureRateLimiter(baseDelay, maxDelay),
-		baseDelay:   baseDelay,
-		rd:          rand.New(rand.NewSource(time.Now().UTC().UnixNano())),
+		baseDelay: baseDelay,
+		maxDelay:  maxDelay,
+		rd:        rand.New(rand.NewSource(time.Now().UTC().UnixNano())),
 	}
 }

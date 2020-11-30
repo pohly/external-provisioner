@@ -89,6 +89,8 @@ See the [storage capacity section](#capacity-support) below for details.
 
 * `--node-deployment`: Enables deploying the external-provisioner together with a CSI driver on nodes to manage node-local volumes.
 
+
+
 * `--strict-topology`: This controls what topology information is passed to `CreateVolumeRequest.AccessibilityRequirements` in case of delayed binding. See [the table below](#topology-support) for an explanation how this option changes the result. This option has no effect if either `Topology` feature is disabled or `Immediate` volume binding mode is used.
 
 * `--immediate-topology`: This controls what topology information is passed to `CreateVolumeRequest.AccessibilityRequirements` in case of immediate binding. See [the table below](#topology-support) for an explanation how this option changes the result. This option has no effect if either `Topology` feature is disabled or `WaitForFirstConsumer` (= delayed) volume binding mode is used. The default is true, so use `--immediate-topology=false` to disable it. It should not be disabled if the CSI driver might create volumes in a topology segment that is not accessible in the cluster. Such a driver should use the topology information to create new volumes where they can be accessed.
@@ -278,6 +280,8 @@ each CSI driver on different nodes. The CSI driver deployment must:
 - use a service account that has the same RBAC rules as for a normal
   deployment
 - invoke external-provisioner with `--node-deployment`
+- tweak `--node-deployment-base-delay` to match the expected cluster
+  size and desired response times
 - set the `NODE_NAME` environment variable to the name of the Kubernetes node
 - implement `GetCapacity`
 
@@ -296,9 +300,7 @@ all attempt to set the "selected node" annotation with their own node
 name as value. Only one update request can succeed, all others get a
 "conflict" error and then know that some other instance was faster. To
 avoid the thundering herd problem, each instance waits for a random,
-exponentially increasing delay before issuing an update request.  In
-practice, the result is that volumes get spread randomly across the
-cluster.
+exponentially increasing delay before issuing an update request.
 
 When `CreateVolume` call fails with `ResourcesExhausted`, the normal
 recovery mechanism is used, i.e. the external-provisioner instance
@@ -309,6 +311,19 @@ external-provisioner checks with `GetCapacity` *before* attempting to
 own a PVC whether the currently available capacity is sufficient for
 the volume. When it isn't, the PVC is ignored and some other instance
 can own it.
+
+The `--node-deployment-base-delay` parameter determines the initial
+wait period. It also sets the jitter, so in practice the delay will be
+in the range from zero to the base delay. After a collision, the delay
+increases exponentially.
+
+The delay is independent of individual PVCs. So in practice, the
+winning external-provisioner instance will start the next wait again
+with the base delay while others have increased their delay
+exponentially, so the result is that one node gets filled up until it
+runs out of space and the external-provisioner stops trying to own
+further PVCs. Then other instances have a chance to become the owner
+and one of them takes over.
 
 Beware that if *no* node has sufficient storage available, then also
 no `CreateVolume` call is attempted and thus no events are generated
