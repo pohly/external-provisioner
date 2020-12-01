@@ -1401,6 +1401,7 @@ loop:
 		klog.V(3).Infof("proceeding with becoming owner although the capacity check failed: %v", err)
 	} else if !hasCapacity {
 		// Don't try to provision.
+		klog.V(5).Infof("not enough capacity for PVC %s/%s with resource revision %s", claim.Namespace, claim.Name, claim.ResourceVersion)
 		return nil
 	}
 
@@ -1423,7 +1424,7 @@ loop:
 		nc.rateLimiter.Success(false)
 		if apierrors.IsConflict(err) {
 			// Lost the race or some other concurrent modification. Repeat the attempt.
-			klog.V(3).Infof("conflict during PVC update, will try again")
+			klog.V(3).Infof("conflict during PVC %s/%s update, will try again", current.Namespace, current.Name)
 			return nc.becomeOwner(ctx, p, claim)
 		}
 		// Some unexpected error. Report it.
