@@ -1264,23 +1264,20 @@ func (p *csiProvisioner) checkNode(ctx context.Context, claim *v1.PersistentVolu
 		// A lot of different external-provisioner instances will try to do this at the same time.
 		// To avoid the thundering herd problem, we sleep in becomeOwner for a short random amount of time
 		// (for new PVCs) or exponentially increasing time (for PVCs were we already had a conflict).
-		pvc, err := p.nodeDeployment.becomeOwner(ctx, p.client, claim)
-		if err == nil && pvc == nil {
-			// Definitely not the owner. Ignore it.
-			return false, nil
-		}
-		if err != nil {
+		if err := p.nodeDeployment.becomeOwner(ctx, p.client, claim); err != nil {
 			return false, fmt.Errorf("PVC %s/%s: %v", claim.Namespace, claim.Name, err)
 		}
+
+		// We are now either the owner or someone else is. We'll check when the updated PVC
+		// enters the workqueue and gets processed by sig-storage-lib-external-provisioner.
+		return false, nil
 	case p.nodeDeployment.NodeName:
 		// Our node is selected.
+		return true, nil
 	default:
 		// Some other node is selected, ignore it.
 		return false, nil
 	}
-
-	// Can provision.
-	return true, nil
 }
 
 func (p *csiProvisioner) checkCapacity(ctx context.Context, claim *v1.PersistentVolumeClaim, selectedNodeName string) (bool, error) {
@@ -1341,7 +1338,7 @@ func (p *csiProvisioner) checkCapacity(ctx context.Context, claim *v1.Persistent
 // becomeOwner updates the PVC with the current node as selected node.
 // Returns an error if something unexpectedly failed, otherwise an updated PVC with
 // the current node selected or nil if not the owner.
-func (nc *internalNodeDeployment) becomeOwner(ctx context.Context, client kubernetes.Interface, claim *v1.PersistentVolumeClaim) (*v1.PersistentVolumeClaim, error) {
+func (nc *internalNodeDeployment) becomeOwner(ctx context.Context, client kubernetes.Interface, claim *v1.PersistentVolumeClaim) error {
 	exp := nc.rateLimiter.Exp()
 	delay := nc.rateLimiter.When()
 	klog.V(5).Infof("will try to become owner of PVC %s/%s with resource version %s in %s (exponent = %d)", claim.Namespace, claim.Name, claim.ResourceVersion, delay, exp)
@@ -1366,14 +1363,14 @@ loop:
 	for {
 		select {
 		case <-ctx.Done():
-			return nil, errors.New("timed out waiting to become PVC owner")
+			return errors.New("timed out waiting to become PVC owner")
 		case <-sleep.Done():
 			break loop
 		case <-ticker.C:
 			// Abort the waiting early if we know that someone else is the owner.
 			stop, _, err := check()
 			if err != nil {
-				return nil, err
+				return err
 			}
 			if stop {
 				break loop
@@ -1382,7 +1379,7 @@ loop:
 	}
 	stop, current, err := check()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if stop {
 		// Some other instance was faster and we don't need to provision for
@@ -1390,7 +1387,7 @@ loop:
 		klog.V(5).Infof("did not become owner of PVC %s/%s with resource revision %s, now owned by %s with resource revision %s",
 			claim.Namespace, claim.Name, claim.ResourceVersion,
 			current.Annotations[annSelectedNode], current.ResourceVersion)
-		return nil, nil
+		return nil
 	}
 
 	// Update PVC with our node as selected node if necessary.
@@ -1399,11 +1396,9 @@ loop:
 		current.Annotations = map[string]string{}
 	}
 	if current.Annotations[annSelectedNode] == nc.NodeName {
-		// Some other goroutine in our own external-provisioner instance was faster (?!).
-		// It's not clear how that can happen because the workqueue in sig-storage-lib-external-provisioner
-		// should only allow one worker per PVC.
+		// A mere sanity check. Should not happen.
 		klog.V(5).Infof("already owner of PVC %s/%s with updated resource version %s", current.Namespace, current.Name, current.ResourceVersion)
-		return current, nil
+		return nil
 	}
 	current.Annotations[annSelectedNode] = nc.NodeName
 	klog.V(5).Infof("trying to become owner of PVC %s/%s with resource version %s now", current.Namespace, current.Name, current.ResourceVersion)
@@ -1418,13 +1413,13 @@ loop:
 			return nc.becomeOwner(ctx, client, claim)
 		}
 		// Some unexpected error. Report it.
-		return nil, fmt.Errorf("selecting node %q for PVC failed: %v", nc.NodeName, err)
+		return fmt.Errorf("selecting node %q for PVC failed: %v", nc.NodeName, err)
 	}
 
 	// Successfully became owner. Future delays will be smaller.
 	nc.rateLimiter.Success()
 	klog.V(5).Infof("became owner of PVC %s/%s with updated resource version %s", current.Namespace, current.Name, current.ResourceVersion)
-	return current, nil
+	return nil
 }
 
 // verifyAndGetSecretNameAndNamespaceTemplate gets the values (templates) associated
