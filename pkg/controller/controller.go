@@ -683,7 +683,7 @@ func (p *csiProvisioner) Provision(ctx context.Context, options controller.Provi
 
 	// The same check already ran in ShouldProvision, but perhaps
 	// it couldn't complete due to some unexpected error.
-	owned, err := p.checkNode(ctx, claim)
+	owned, err := p.checkNode(ctx, claim, "provision")
 	if err != nil {
 		return nil, controller.ProvisioningNoChange,
 			fmt.Errorf("node check failed: %v", err)
@@ -1190,7 +1190,7 @@ func (p *csiProvisioner) ShouldProvision(ctx context.Context, claim *v1.Persiste
 	// the claim will be ignored without logging an event for it.
 	// We don't want each provisioner instance to log events for the same
 	// claim unless they really need to do some work for it.
-	owned, err := p.checkNode(ctx, claim)
+	owned, err := p.checkNode(ctx, claim, "should provision")
 	if err == nil {
 		if !owned {
 			return false
@@ -1220,7 +1220,7 @@ func (p *csiProvisioner) volumeHandleToId(handle string) string {
 // If the PVC uses immediate binding, it will try to take the PVC for provisioning
 // on the current node. Returns true if provisioning can proceed, an error
 // in case of a failure that prevented checking.
-func (p *csiProvisioner) checkNode(ctx context.Context, claim *v1.PersistentVolumeClaim) (bool, error) {
+func (p *csiProvisioner) checkNode(ctx context.Context, claim *v1.PersistentVolumeClaim, caller string) (provision bool, err error) {
 	if p.nodeDeployment == nil {
 		return true, nil
 	}
@@ -1231,6 +1231,14 @@ func (p *csiProvisioner) checkNode(ctx context.Context, claim *v1.PersistentVolu
 	}
 	switch selectedNode {
 	case "":
+		logger := klog.V(5)
+		if logger.Enabled() {
+			logger.Infof("%s: checking node for PVC %s/%s with resource version %s", caller, claim.Namespace, claim.Name, claim.ResourceVersion)
+			defer func() {
+				logger.Infof("%s: done checking node for PVC %s/%s with resource version %s: provision %v, err %v", caller, claim.Namespace, claim.Name, claim.ResourceVersion, provision, err)
+			}()
+		}
+
 		// Volume with immediate binding. Try to select the current node if there is a chance of it
 		// being created there, i.e. there is currently enough free space. If later volume provisioning
 		// fails on this node, the annotation will be unset and node selection will happen again.
@@ -1336,7 +1344,7 @@ func (p *csiProvisioner) checkCapacity(ctx context.Context, claim *v1.Persistent
 func (nc *internalNodeDeployment) becomeOwner(ctx context.Context, client kubernetes.Interface, claim *v1.PersistentVolumeClaim) (*v1.PersistentVolumeClaim, error) {
 	exp := nc.rateLimiter.Exp()
 	delay := nc.rateLimiter.When()
-	klog.V(5).Infof("will try to become owner of PVC %s/%s in %s (exponent = %d)", claim.Namespace, claim.Name, delay, exp)
+	klog.V(5).Infof("will try to become owner of PVC %s/%s with resource version %s in %s (exponent = %d)", claim.Namespace, claim.Name, claim.ResourceVersion, delay, exp)
 	sleep, cancel := context.WithTimeout(ctx, delay)
 	defer cancel()
 	ticker := time.NewTicker(10 * time.Millisecond)
@@ -1350,7 +1358,7 @@ func (nc *internalNodeDeployment) becomeOwner(ctx context.Context, client kubern
 			return false, nil, errors.New("PVC was replaced")
 		}
 		if current.Annotations != nil && current.Annotations[annSelectedNode] != "" && current.Annotations[annSelectedNode] != nc.NodeName {
-			return true, nil, nil
+			return true, current, nil
 		}
 		return false, current, nil
 	}
@@ -1379,14 +1387,23 @@ loop:
 	if stop {
 		// Some other instance was faster and we don't need to provision for
 		// this PVC.
-		klog.V(5).Infof("did not become owner of PVC %s/%s", claim.Namespace, claim.Name)
+		klog.V(5).Infof("did not become owner of PVC %s/%s with resource revision %s, now owned by %s with resource revision %s",
+			claim.Namespace, claim.Name, claim.ResourceVersion,
+			current.Annotations[annSelectedNode], current.ResourceVersion)
 		return nil, nil
 	}
 
-	// Update PVC with our node as selected node.
+	// Update PVC with our node as selected node if necessary.
 	current = current.DeepCopy()
 	if current.Annotations == nil {
 		current.Annotations = map[string]string{}
+	}
+	if current.Annotations[annSelectedNode] == nc.NodeName {
+		// Some other goroutine in our own external-provisioner instance was faster (?!).
+		// It's not clear how that can happen because the workqueue in sig-storage-lib-external-provisioner
+		// should only allow one worker per PVC.
+		klog.V(5).Infof("already owner of PVC %s/%s with updated resource version %s", current.Namespace, current.Name, current.ResourceVersion)
+		return current, nil
 	}
 	current.Annotations[annSelectedNode] = nc.NodeName
 	klog.V(5).Infof("trying to become owner of PVC %s/%s with resource version %s now", current.Namespace, current.Name, current.ResourceVersion)
