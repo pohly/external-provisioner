@@ -211,6 +211,8 @@ type NodeDeployment struct {
 	ClaimInformer coreinformers.PersistentVolumeClaimInformer
 	NodeInfo      csi.NodeGetInfoResponse
 	BaseDelay     time.Duration
+	MaxDelay      time.Duration
+	Alpha         float64
 }
 
 type internalNodeDeployment struct {
@@ -356,11 +358,19 @@ func NewCSIProvisioner(client kubernetes.Interface,
 		eventRecorder:                         eventRecorder,
 	}
 	if nodeDeployment != nil {
-		baseDelay := nodeDeployment.BaseDelay
 		provisioner.nodeDeployment = &internalNodeDeployment{
 			NodeDeployment: *nodeDeployment,
-			rateLimiter:    newItemExponentialFailureRateLimiterWithJitter(baseDelay, 128*baseDelay),
+			rateLimiter:    newItemExponentialFailureRateLimiterWithJitter(nodeDeployment.BaseDelay, nodeDeployment.MaxDelay, nodeDeployment.Alpha),
 		}
+		// Remove deleted PVCs from rate limiter.
+		claimHandler := cache.ResourceEventHandlerFuncs{
+			DeleteFunc: func(obj interface{}) {
+				if claim, ok := obj.(*v1.PersistentVolumeClaim); ok {
+					provisioner.nodeDeployment.rateLimiter.Forget(claim.UID)
+				}
+			},
+		}
+		provisioner.nodeDeployment.ClaimInformer.Informer().AddEventHandler(claimHandler)
 	}
 
 	return provisioner
@@ -1324,9 +1334,9 @@ func (p *csiProvisioner) checkCapacity(ctx context.Context, claim *v1.Persistent
 // Returns an error if something unexpectedly failed, otherwise an updated PVC with
 // the current node selected or nil if not the owner.
 func (nc *internalNodeDeployment) becomeOwner(ctx context.Context, p *csiProvisioner, claim *v1.PersistentVolumeClaim) error {
-	exp := nc.rateLimiter.Exp()
-	delay := nc.rateLimiter.When()
-	klog.V(5).Infof("will try to become owner of PVC %s/%s with resource version %s in %s (exponent = %d)", claim.Namespace, claim.Name, claim.ResourceVersion, delay, exp)
+	factor := nc.rateLimiter.ScaleFactor()
+	delay := nc.rateLimiter.When(claim.UID)
+	klog.V(5).Infof("will try to become owner of PVC %s/%s with resource version %s in %s (factor = %f)", claim.Namespace, claim.Name, claim.ResourceVersion, delay, factor)
 	sleep, cancel := context.WithTimeout(ctx, delay)
 	defer cancel()
 	ticker := time.NewTicker(10 * time.Millisecond)
@@ -1410,7 +1420,7 @@ loop:
 	if err != nil {
 		// Slow down, regardless whether it is because of a
 		// lost race or general issues with system load.
-		nc.rateLimiter.Failure()
+		nc.rateLimiter.Success(false)
 		if apierrors.IsConflict(err) {
 			// Lost the race or some other concurrent modification. Repeat the attempt.
 			klog.V(3).Infof("conflict during PVC update, will try again")
@@ -1421,7 +1431,8 @@ loop:
 	}
 
 	// Successfully became owner. Future delays will be smaller.
-	nc.rateLimiter.Success()
+	nc.rateLimiter.Forget(claim.UID)
+	nc.rateLimiter.Success(true)
 	klog.V(5).Infof("became owner of PVC %s/%s with updated resource version %s", current.Namespace, current.Name, current.ResourceVersion)
 	return nil
 }

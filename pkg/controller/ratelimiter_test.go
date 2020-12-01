@@ -21,53 +21,41 @@ import (
 	"time"
 )
 
+const factorMaxDelay = 10
+
 func TestRateLimiter(t *testing.T) {
-	rd := newItemExponentialFailureRateLimiterWithJitter(time.Second, 4*time.Second)
-	backoff := rd.When()
-	if backoff > time.Second {
-		t.Errorf("expected value < 1s, got %s", backoff)
+	maxDelay := factorMaxDelay * time.Second
+	rd := newItemExponentialFailureRateLimiterWithJitter(time.Second, maxDelay, 0.05)
+
+	// Drive up the scale factor by simulating 100% failure rate.
+	for i := 0; i < 100; i++ {
+		backoff := rd.When(1)
+		if backoff > maxDelay {
+			t.Errorf("expected value < %s, got %s", maxDelay, backoff)
+		}
+		rd.Forget(1)
+		rd.Success(false)
+		factor := rd.ScaleFactor()
+		t.Logf("increase i=%d, scale factor %f", i, factor)
+	}
+	factor := rd.ScaleFactor()
+	if factor < 0.99*factorMaxDelay {
+		t.Errorf("expected scale factor >= 0.99 * %d, got %f", factorMaxDelay, factor)
 	}
 
-	rd.Failure()
-	exp := rd.Exp()
-	if exp != 1 {
-		t.Errorf("expected exp == 1, got %d", exp)
+	// Reduce it back to 1.0 with zero failure rate.
+	for i := 0; i < 100; i++ {
+		backoff := rd.When(1)
+		if backoff > maxDelay {
+			t.Errorf("expected value < %s, got %s", maxDelay, backoff)
+		}
+		rd.Forget(1)
+		rd.Success(true)
+		factor := rd.ScaleFactor()
+		t.Logf("decrease i=%d, scale factor %f", i, factor)
 	}
-	backoff = rd.When()
-	if backoff < time.Second ||
-		backoff > 2*time.Second {
-		t.Errorf("expected value >= 1s, <= 2s, got %s", backoff)
-	}
-
-	rd.Failure()
-	exp = rd.Exp()
-	if exp != 2 {
-		t.Errorf("expected exp == 2, got %d", exp)
-	}
-	backoff = rd.When()
-	if backoff < 2*time.Second ||
-		backoff > 4*time.Second {
-		t.Errorf("expected value >= 2s, <= 4s, got %s", backoff)
-	}
-
-	rd.Failure()
-	exp = rd.Exp()
-	if exp != 3 {
-		t.Errorf("expected exp == 3, got %d", exp)
-	}
-	backoff = rd.When()
-	if backoff < 2*time.Second ||
-		backoff > 4*time.Second {
-		t.Errorf("expected value >= 2s, <= 4s, got %s", backoff)
-	}
-
-	rd.Success()
-	exp = rd.Exp()
-	if exp != 0 {
-		t.Errorf("expected exp == 0, got %d", exp)
-	}
-	backoff = rd.When()
-	if backoff > time.Second {
-		t.Errorf("expected value <= 1s, got %s", backoff)
+	factor = rd.ScaleFactor()
+	if factor > 1.1 {
+		t.Errorf("expected scale factor <= 1.1, got %f", factor)
 	}
 }
