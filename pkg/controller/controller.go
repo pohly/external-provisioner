@@ -1240,31 +1240,16 @@ func (p *csiProvisioner) checkNode(ctx context.Context, claim *v1.PersistentVolu
 		}
 
 		// Volume with immediate binding. Try to select the current node if there is a chance of it
-		// being created there, i.e. there is currently enough free space. If later volume provisioning
-		// fails on this node, the annotation will be unset and node selection will happen again.
-		// If no other node picks up the volume, then the PVC remains in the queue and this check will
-		// be repeated from time to time.
+		// being created there, i.e. there is currently enough free space (checked in becomeOwner).
 		//
-		// The exact same parameters are computed here as if we were provisioning. If a precondition
-		// is violated, like "storage class does not exist", then we have two options:
-		// - silently ignore the problem, but if all instances do that, the problem is not surfaced
-		//   to the user
-		// - try to become the owner and let provisioning start, which then will probably
-		//   fail the same way, but then has a chance to inform the user via events
+		// If later volume provisioning fails on this node, the annotation will be unset and node
+		// selection will happen again. If no other node picks up the volume, then the PVC remains
+		// in the queue and this check will be repeated from time to time.
 		//
-		// We do the latter.
-		hasCapacity, err := p.checkCapacity(ctx, claim, p.nodeDeployment.NodeName)
-		if err != nil {
-			klog.V(3).Infof("proceeding with becoming owner although the capacity check failed: %v", err)
-		} else if !hasCapacity {
-			// Don't try to provision.
-			return false, nil
-		}
-
 		// A lot of different external-provisioner instances will try to do this at the same time.
 		// To avoid the thundering herd problem, we sleep in becomeOwner for a short random amount of time
 		// (for new PVCs) or exponentially increasing time (for PVCs were we already had a conflict).
-		if err := p.nodeDeployment.becomeOwner(ctx, p.client, claim); err != nil {
+		if err := p.nodeDeployment.becomeOwner(ctx, p, claim); err != nil {
 			return false, fmt.Errorf("PVC %s/%s: %v", claim.Namespace, claim.Name, err)
 		}
 
@@ -1338,7 +1323,7 @@ func (p *csiProvisioner) checkCapacity(ctx context.Context, claim *v1.Persistent
 // becomeOwner updates the PVC with the current node as selected node.
 // Returns an error if something unexpectedly failed, otherwise an updated PVC with
 // the current node selected or nil if not the owner.
-func (nc *internalNodeDeployment) becomeOwner(ctx context.Context, client kubernetes.Interface, claim *v1.PersistentVolumeClaim) error {
+func (nc *internalNodeDeployment) becomeOwner(ctx context.Context, p *csiProvisioner, claim *v1.PersistentVolumeClaim) error {
 	exp := nc.rateLimiter.Exp()
 	delay := nc.rateLimiter.When()
 	klog.V(5).Infof("will try to become owner of PVC %s/%s with resource version %s in %s (exponent = %d)", claim.Namespace, claim.Name, claim.ResourceVersion, delay, exp)
@@ -1359,25 +1344,25 @@ func (nc *internalNodeDeployment) becomeOwner(ctx context.Context, client kubern
 		}
 		return false, current, nil
 	}
+	var stop bool
+	var current *v1.PersistentVolumeClaim
+	var err error
 loop:
 	for {
 		select {
 		case <-ctx.Done():
 			return errors.New("timed out waiting to become PVC owner")
 		case <-sleep.Done():
+			stop, current, err = check()
 			break loop
 		case <-ticker.C:
 			// Abort the waiting early if we know that someone else is the owner.
-			stop, _, err := check()
-			if err != nil {
-				return err
-			}
-			if stop {
+			stop, current, err = check()
+			if err != nil || stop {
 				break loop
 			}
 		}
 	}
-	stop, current, err := check()
 	if err != nil {
 		return err
 	}
@@ -1387,6 +1372,25 @@ loop:
 		klog.V(5).Infof("did not become owner of PVC %s/%s with resource revision %s, now owned by %s with resource revision %s",
 			claim.Namespace, claim.Name, claim.ResourceVersion,
 			current.Annotations[annSelectedNode], current.ResourceVersion)
+		return nil
+	}
+
+	// Check capacity as late as possible before trying to become the owner, because that is a
+	// relatively expensive operation.
+	//
+	// The exact same parameters are computed here as if we were provisioning. If a precondition
+	// is violated, like "storage class does not exist", then we have two options:
+	// - silently ignore the problem, but if all instances do that, the problem is not surfaced
+	//   to the user
+	// - try to become the owner and let provisioning start, which then will probably
+	//   fail the same way, but then has a chance to inform the user via events
+	//
+	// We do the latter.
+	hasCapacity, err := p.checkCapacity(ctx, claim, p.nodeDeployment.NodeName)
+	if err != nil {
+		klog.V(3).Infof("proceeding with becoming owner although the capacity check failed: %v", err)
+	} else if !hasCapacity {
+		// Don't try to provision.
 		return nil
 	}
 
@@ -1402,7 +1406,7 @@ loop:
 	}
 	current.Annotations[annSelectedNode] = nc.NodeName
 	klog.V(5).Infof("trying to become owner of PVC %s/%s with resource version %s now", current.Namespace, current.Name, current.ResourceVersion)
-	current, err = client.CoreV1().PersistentVolumeClaims(current.Namespace).Update(ctx, current, metav1.UpdateOptions{})
+	current, err = p.client.CoreV1().PersistentVolumeClaims(current.Namespace).Update(ctx, current, metav1.UpdateOptions{})
 	if err != nil {
 		// Slow down, regardless whether it is because of a
 		// lost race or general issues with system load.
@@ -1410,7 +1414,7 @@ loop:
 		if apierrors.IsConflict(err) {
 			// Lost the race or some other concurrent modification. Repeat the attempt.
 			klog.V(3).Infof("conflict during PVC update, will try again")
-			return nc.becomeOwner(ctx, client, claim)
+			return nc.becomeOwner(ctx, p, claim)
 		}
 		// Some unexpected error. Report it.
 		return fmt.Errorf("selecting node %q for PVC failed: %v", nc.NodeName, err)
