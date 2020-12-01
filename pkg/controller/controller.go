@@ -1425,7 +1425,7 @@ loop:
 		nc.rateLimiter.Success(false)
 		if apierrors.IsConflict(err) {
 			// Lost the race or some other concurrent modification. Repeat the attempt.
-			klog.V(3).Infof("conflict during PVC %s/%s update, will try again", current.Namespace, current.Name)
+			klog.V(3).Infof("conflict during PVC %s/%s update, will try again", claim.Namespace, claim.Name)
 			return nc.becomeOwner(ctx, p, claim)
 		}
 		// Some unexpected error. Report it.
