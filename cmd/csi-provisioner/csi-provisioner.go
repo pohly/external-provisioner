@@ -95,7 +95,7 @@ var (
 	localTopology            = flag.Bool("local-topology", false, "Instead of watching Node and CSINode objects, use only the topology provided by the CSI driver. Only valid in combination with --node-deployment.")
 	nodeDeploymentBaseDelay  = flag.Duration("node-deployment-base-delay", time.Second, "Determines how long the external-provisioner sleeps initially before trying to own a PVC with immediate binding.")
 	nodeDeploymentMaxDelay   = flag.Duration("node-deployment-max-delay", 30*time.Second, "Determines how long the external-provisioner sleeps at most before trying to own a PVC with immediate binding.")
-	nodeDeploymentAlpha      = flag.Float64("node-deployment-alpha", 0.05, "Determines how quickly the external-provisioner adapts its exponential moving average of successfully becoming the owner of a PVC with immediate binding.")
+	nodeDeploymentAlpha      = flag.Float64("node-deployment-alpha", 0.05, "Determines how quickly the external-provisioner adapts its exponential moving average of successfully becoming the owner of a PVC with immediate binding. Must be in the range [0, 1]. Zero never adapts, 1 adapts very quickly.")
 
 	featureGates        map[string]bool
 	provisionController *controller.ProvisionController
