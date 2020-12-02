@@ -91,11 +91,13 @@ var (
 	capacityImmediateBinding = flag.Bool("capacity-for-immediate-binding", false, "Enables producing capacity information for storage classes with immediate binding. Not needed for the Kubernetes scheduler, maybe useful for other consumers or for debugging.")
 	capacityPollInterval     = flag.Duration("capacity-poll-interval", time.Minute, "How long the external-provisioner waits before checking for storage capacity changes.")
 	capacityOwnerrefLevel    = flag.Int("capacity-ownerref-level", 1, "The level indicates the number of objects that need to be traversed starting from the pod identified by the POD_NAME and POD_NAMESPACE environment variables to reach the owning object for CSIStorageCapacity objects: 0 for the pod itself, 1 for a StatefulSet, 2 for a Deployment, etc.")
-	enableNodeDeployment     = flag.Bool("node-deployment", false, "Enables deploying the external-provisioner together with a CSI driver on nodes to manage node-local volumes.")
-	localTopology            = flag.Bool("local-topology", false, "Instead of watching Node and CSINode objects, use only the topology provided by the CSI driver. Only valid in combination with --node-deployment.")
-	nodeDeploymentBaseDelay  = flag.Duration("node-deployment-base-delay", time.Second, "Determines how long the external-provisioner sleeps initially before trying to own a PVC with immediate binding.")
-	nodeDeploymentMaxDelay   = flag.Duration("node-deployment-max-delay", 30*time.Second, "Determines how long the external-provisioner sleeps at most before trying to own a PVC with immediate binding.")
-	nodeDeploymentAlpha      = flag.Float64("node-deployment-alpha", 0.05, "Determines how quickly the external-provisioner adapts its exponential moving average of successfully becoming the owner of a PVC with immediate binding. Must be in the range [0, 1]. Zero never adapts, 1 adapts very quickly.")
+
+	enableNodeDeployment           = flag.Bool("node-deployment", false, "Enables deploying the external-provisioner together with a CSI driver on nodes to manage node-local volumes.")
+	localTopology                  = flag.Bool("local-topology", false, "Instead of watching Node and CSINode objects, use only the topology provided by the CSI driver. Only valid in combination with --node-deployment.")
+	nodeDeploymentImmediateBinding = flag.Bool("node-deployment-immediate-binding", true, "Determines whether immediate binding is supported when deployed on each node.")
+	nodeDeploymentBaseDelay        = flag.Duration("node-deployment-base-delay", time.Second, "Determines how long the external-provisioner sleeps initially before trying to own a PVC with immediate binding.")
+	nodeDeploymentMaxDelay         = flag.Duration("node-deployment-max-delay", 30*time.Second, "Determines how long the external-provisioner sleeps at most before trying to own a PVC with immediate binding.")
+	nodeDeploymentAlpha            = flag.Float64("node-deployment-alpha", 0.05, "Determines how quickly the external-provisioner adapts its exponential moving average of successfully becoming the owner of a PVC with immediate binding. Must be in the range [0, 1]. Zero never adapts, 1 adapts very quickly.")
 
 	featureGates        map[string]bool
 	provisionController *controller.ProvisionController
@@ -230,11 +232,12 @@ func main() {
 	var nodeDeployment *ctrl.NodeDeployment
 	if *enableNodeDeployment {
 		nodeDeployment = &ctrl.NodeDeployment{
-			NodeName:      node,
-			ClaimInformer: factory.Core().V1().PersistentVolumeClaims(),
-			BaseDelay:     *nodeDeploymentBaseDelay,
-			MaxDelay:      *nodeDeploymentMaxDelay,
-			Alpha:         *nodeDeploymentAlpha,
+			NodeName:         node,
+			ClaimInformer:    factory.Core().V1().PersistentVolumeClaims(),
+			ImmediateBinding: *nodeDeploymentImmediateBinding,
+			BaseDelay:        *nodeDeploymentBaseDelay,
+			MaxDelay:         *nodeDeploymentMaxDelay,
+			Alpha:            *nodeDeploymentAlpha,
 		}
 		nodeInfo, err := ctrl.GetNodeInfo(grpcClient, *operationTimeout)
 		if err != nil {

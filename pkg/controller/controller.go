@@ -208,12 +208,13 @@ type requiredCapabilities struct {
 // NodeDeployment contains additional parameters for running external-provisioner alongside a
 // CSI driver on one or more nodes in the cluster.
 type NodeDeployment struct {
-	NodeName      string
-	ClaimInformer coreinformers.PersistentVolumeClaimInformer
-	NodeInfo      csi.NodeGetInfoResponse
-	BaseDelay     time.Duration
-	MaxDelay      time.Duration
-	Alpha         float64
+	NodeName         string
+	ClaimInformer    coreinformers.PersistentVolumeClaimInformer
+	NodeInfo         csi.NodeGetInfoResponse
+	ImmediateBinding bool
+	BaseDelay        time.Duration
+	MaxDelay         time.Duration
+	Alpha            float64
 }
 
 type internalNodeDeployment struct {
@@ -1250,7 +1251,17 @@ func (p *csiProvisioner) checkNode(ctx context.Context, claim *v1.PersistentVolu
 			}()
 		}
 
-		// Volume with immediate binding. Try to select the current node if there is a chance of it
+		sc, err := p.scLister.Get(*claim.Spec.StorageClassName)
+		if err != nil {
+			return false, err
+		}
+		if sc.VolumeBindingMode == nil ||
+			*sc.VolumeBindingMode != storagev1.VolumeBindingImmediate ||
+			!p.nodeDeployment.ImmediateBinding {
+			return false, nil
+		}
+
+		// Try to select the current node if there is a chance of it
 		// being created there, i.e. there is currently enough free space (checked in becomeOwner).
 		//
 		// If later volume provisioning fails on this node, the annotation will be unset and node
