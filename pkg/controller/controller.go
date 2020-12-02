@@ -1390,7 +1390,8 @@ loop:
 	}
 	if stop {
 		// Some other instance was faster and we don't need to provision for
-		// this PVC.
+		// this PVC. If the PVC needs to be rescheduled, we start the delay from scratch.
+		nc.rateLimiter.Forget(claim.UID)
 		klog.V(5).Infof("did not become owner of PVC %s/%s with resource revision %s, now owned by %s with resource revision %s",
 			claim.Namespace, claim.Name, claim.ResourceVersion,
 			current.Annotations[annSelectedNode], current.ResourceVersion)
