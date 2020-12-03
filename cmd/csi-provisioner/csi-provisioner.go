@@ -220,7 +220,6 @@ func main() {
 	scLister := factory.Storage().V1().StorageClasses().Lister()
 	claimLister := factory.Core().V1().PersistentVolumeClaims().Lister()
 
-	var csiNodeLister storagelistersv1.CSINodeLister
 	var vaLister storagelistersv1.VolumeAttachmentLister
 	if controllerCapabilities[csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME] {
 		klog.Info("CSI driver supports PUBLISH_UNPUBLISH_VOLUME, watching VolumeAttachments")
@@ -246,6 +245,7 @@ func main() {
 		nodeDeployment.NodeInfo = *nodeInfo
 	}
 
+	var csiNodeLister storagelistersv1.CSINodeLister
 	var nodeLister listersv1.NodeLister
 	if ctrl.SupportsTopology(pluginCapabilities) {
 		if *localTopology {
@@ -311,6 +311,7 @@ func main() {
 		controller.Threadiness(int(*workerThreads)),
 		controller.CreateProvisionedPVLimiter(workqueue.DefaultControllerRateLimiter()),
 		controller.ClaimsInformer(claimInformer),
+		controller.NodesLister(nodeLister),
 	}
 
 	translator := csitrans.New()

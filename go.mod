@@ -71,3 +71,5 @@ replace k8s.io/component-base => k8s.io/component-base v0.19.0
 replace k8s.io/controller-manager => k8s.io/controller-manager v0.19.0
 
 replace k8s.io/csi-translation-lib => k8s.io/csi-translation-lib v0.19.3
+
+replace sigs.k8s.io/sig-storage-lib-external-provisioner/v6 => "//nvme/gopath/src/sigs.k8s.io/sig-storage-lib-external-provisioner"
