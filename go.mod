@@ -71,3 +71,6 @@ replace k8s.io/component-base => k8s.io/component-base v0.19.0
 replace k8s.io/controller-manager => k8s.io/controller-manager v0.19.0
 
 replace k8s.io/csi-translation-lib => k8s.io/csi-translation-lib v0.19.3
+
+// node-informer branch = https://github.com/kubernetes-sigs/sig-storage-lib-external-provisioner/pull/100
+replace sigs.k8s.io/sig-storage-lib-external-provisioner/v6 => github.com/pohly/sig-storage-lib-external-provisioner/v6 v6.0.0-20201203095743-057b3397dbc4
